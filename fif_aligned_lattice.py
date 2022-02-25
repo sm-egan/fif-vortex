@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import os.path
 import time
+import warnings
 
 R = 2
 paulis = np.array([
@@ -140,6 +141,9 @@ def find_nn(lattice, deg = 1):
 def N_unitcells(r):
     return 1 + 3*r*(r+1)
 
+def A_hex(r):
+    return 3*np.sqrt(3)/2*r**2
+
 def H_diag(mu):
     N = len(lattice)
     block = sp.block_diag((-mu,)*N)
@@ -167,10 +171,13 @@ def H_hop(t):
     halfmat = sp.csr_matrix((data, indlist, indptr), shape = (N, N))
     return sp.kron(paulis[3], halfmat + halfmat.transpose())
 
-def H_sc1(Delta1, plot = False):
+def H_sc1(Delta1, vortex = -1, vorticity =  1, plot = False):
     # Bonds with +1 order param
     bonds = np.array([0,2,4])
     indlist = np.array([])
+    if vortex > -1:
+        print('Adding vortex to H_sc2')
+        vplist = np.array([])
     indptr = [0]
     N = len(lattice)
     
@@ -178,19 +185,27 @@ def H_sc1(Delta1, plot = False):
         nninds = lattnn1[i][bonds]
         nninds = nninds[nninds > -1]
         
+        if vortex > -1:
+            vps = vortex_phase(vortex, i, nninds, vorticity)
+            vplist = np.append(vplist, vps)
+        
         indlist = np.append(indlist, nninds)
         indptr.append(indptr[-1] + len(nninds))
-        
-    data = np.array([-Delta1]*len(indlist))
+    
+    if vortex > -1:
+        data = -Delta1*vplist
+    else:
+        data = np.array([-Delta1]*len(indlist))
     #print('H_sc1 indlist has {} elements'.format(len(indlist)))
     halfmat = sp.csr_matrix((data, indlist, indptr), shape = (N, N))
+    halfmat = halfmat - halfmat.transpose() 
     if plot:
-        plt.pcolor(halfmat.toarray())
+        plt.pcolor(np.real(halfmat.toarray()))
+        plt.title(r'Re $H_{SC1}$')
         plt.show()
-    halfmat = halfmat - halfmat.transpose()
-    if plot:
-        plt.pcolor(halfmat.toarray())
-        plt.show()
+        plt.pcolor(np.imag(halfmat.toarray()))
+        plt.title(r'Im $H_{SC1}$')
+        plt.show()       
         
     '''
     Used this method to put blocks together before I learned about sp.bmat
@@ -201,10 +216,13 @@ def H_sc1(Delta1, plot = False):
     '''
     return sp.bmat([[None, halfmat], [halfmat.getH(), None]]).tocsr()
 
-def H_sc2(Delta2, plot = False):
+def H_sc2(Delta2, vortex = -1, vorticity = 1, plot = False):
     # Bonds with +i order param
     bonds = np.array([1,3,5])
     indlist = np.array([])
+    if vortex > -1:
+        print('Adding vortex to H_sc2')
+        vplist = np.array([])
     indptr = [0]
     N = len(lattice)
     
@@ -212,21 +230,28 @@ def H_sc2(Delta2, plot = False):
         nninds = lattnn2[i][bonds]
         nninds = nninds[nninds > -1]
         
+        if vortex > -1:
+            vps = vortex_phase(vortex, i, nninds, vorticity)
+            vplist = np.append(vplist, vps)
+        
         indlist = np.append(indlist, nninds)
         indptr.append(indptr[-1] + len(nninds))
     
-        data = np.array([-Delta1]*len(indlist))
-    
-    data = np.array([-(Delta2*1j)]*len(indlist))
+    if vortex > -1:
+        data = -Delta2*1j*vplist
+    else:
+        data = np.array([-(Delta2*1j)]*len(indlist))
     #print('H_sc2 indlist has {} elements'.format(len(indlist)))
     halfmat = sp.csr_matrix((data, indlist, indptr), shape = (N, N))
-    if plot:
-        plt.pcolor(np.imag(halfmat.toarray()))
-        plt.show()
     halfmat = halfmat - halfmat.transpose()
+    
     if plot:
-        plt.pcolor(np.imag(halfmat.toarray()))
+        plt.pcolor(np.real(halfmat.toarray()))
+        plt.title(r'Re $H_{SC1}$')
         plt.show()
+        plt.pcolor(np.imag(halfmat.toarray()))
+        plt.title(r'Im $H_{SC1}$')
+        plt.show()  
         
     #data2 = np.array([halfmat.toarray(), halfmat.getH().toarray()])
     #return sp.bsr_matrix((data2, np.array([1,0]), np.array([0,1,2])), shape=(2*N, 2*N))
@@ -238,65 +263,84 @@ def H_sc2(Delta2, plot = False):
     # halfmat = sp.bsr_matrix((data, indlist, indptr), shape = (2*N, 2*N))
     # return halfmat + np.conj(halfmat.transpose())
 
-def H_fif(mu, t, Delta1, Delta2):
+def H_fif(mu, t, Delta1, Delta2, vortex = -1, vorticity = 1):
     start = time.time()
-    sc1 = H_sc1(Delta1)
+    sc1 = H_sc1(Delta1, vortex, vorticity)
     stop = time.time()
     print('H_sc1 took {0:5f} seconds to build'.format(stop - start))
     
     start = time.time()
-    sc2 = H_sc2(Delta2)
+    sc2 = H_sc2(Delta2, vortex, vorticity)
     stop = time.time()
     print('H_sc2 too {0:5f} seconds to build'.format(stop-start))
     return H_diag(mu) + H_hop(t) + sc1 + sc2
 
-def vortex_phase(vsite, vorticity, raw = True):
+def vortex_phase(vsite, ind, neighbours, vorticity = 1):
+    bondmid = (lattice[ind] + lattice[neighbours])/2
+    distvec = bondmid - lattice[vsite]
+    #print(distvec)
+    
+    distx = distvec[:, 0]*basis[0,0] + distvec[:, 1]*basis[1,0]
+    disty = distvec[:, 0]*basis[0,1] + distvec[:,1]*basis[1,1]
+    
+    phases = np.exp(1j*vorticity*np.arctan2(disty, distx))
     '''
-    Creates sparse matrix which can be multiplied by the Hamiltonian to give
-    phase winding on the order parameter
-
-    Parameters
-    ----------
-    vsite : int
-        Lattice site where vortex appears.
-    vorticity : int
-        Number of times the phase winds around the vortex.
-
-    Returns
-    -------
-    None.
-
+    Goal:
+        Return an array the same length as neighbours which gives the phase multiplier
+        for each bond due to the vortex.
+    Next steps:
+        1. Calculate the angle of the bond centre relative to the vortex centre
+            a. Maybe make an auxiliary function called get_angle() to do this?
+        2. Once you have the above, simply insert it into the complex exponential and return ?
+      
     '''
-    N = len(lattice)
-    bonds = np.arange(0,6)
-    phase1 = np.exp(1j*vorticity*pi/3*bonds)
-    phase2 = np.exp(1j*vorticity*pi*(1/3*bonds + 1/6))
+    return phases
     
-    row1 = np.array([vsite]*6)
-    row2 = np.array([vsite]*6)
-    
-    col1 = lattnn1[vsite]
-    col2 = lattnn2[vsite]
-    
-    data1 = phase1 
-    data2 = phase2 
-    if not raw:
-        data1 -= 1
-        data2 -= 1
-    upper1 = sp.csr_matrix((data1, (row1, col1)), shape = (N, N))
-    upper1 = upper1 + upper1.transpose()
-    
-    upper2 = sp.csr_matrix((data2, (row2, col2)), shape = (N, N))
-    upper2 = upper2 + upper2.transpose()
-    
-    halfmat = upper1 + upper2
-    
-    return sp.bmat([[None, halfmat],[halfmat.getH(), None]]).tocsr()
+        
+# def vortex_phase(vsite, vorticity, raw = True):
+#     '''
+#     Creates sparse matrix which can be multiplied by the Hamiltonian to give
+#     phase winding on the order parameter
 
-def find_origin():
-    return np.where(np.all(lattice == np.array([0,0]), axis = 1))[0][0]
+#     Parameters
+#     ----------
+#     vsite : int
+#         Lattice site where vortex appears.
+#     vorticity : int
+#         Number of times the phase winds around the vortex.
 
-def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savename = None, pointsize = None, cmap = 'YlGnBu'):
+#     Returns
+#     -------
+#     None.
+
+#     '''
+#     N = len(lattice)
+#     bonds = np.arange(0,6)
+#     phase1 = np.exp(1j*vorticity*pi/3*bonds)
+#     phase2 = np.exp(1j*vorticity*pi*(1/3*bonds + 1/6))
+    
+#     row1 = np.array([vsite]*6)
+#     row2 = np.array([vsite]*6)
+    
+#     col1 = lattnn1[vsite]
+#     col2 = lattnn2[vsite]
+    
+#     data1 = phase1 
+#     data2 = phase2 
+#     if not raw:
+#         data1 -= 1
+#         data2 -= 1
+#     upper1 = sp.csr_matrix((data1, (row1, col1)), shape = (N, N))
+#     upper1 = upper1 + upper1.transpose()
+    
+#     upper2 = sp.csr_matrix((data2, (row2, col2)), shape = (N, N))
+#     upper2 = upper2 + upper2.transpose()
+    
+#     halfmat = upper1 + upper2
+    
+#     return sp.bmat([[None, halfmat],[halfmat.getH(), None]]).tocsr()
+
+def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savename = None, pointsize = None, cmap = 'YlGnBu', norm = None):
     xlist = []
     ylist = []
     
@@ -319,9 +363,15 @@ def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savenam
     if colour is None:
         plt.scatter(xlist, ylist, s=size, marker=mark)
     else:
+        if np.any(colour < 0) and norm == 'log':
+            warnings.warn('WARNING: log scale does not work with negative values.  Linear scale will be used')
+            norm = None
         if clims == None:
             minmax = np.max(colour)
-            plt.scatter(xlist, ylist, c = colour, cmap = cmap, s = size, marker = mark)
+            if norm is None:
+                plt.scatter(xlist, ylist, c = colour, cmap = cmap, s = size, marker = mark)
+            elif norm == 'log':
+                plt.scatter(xlist, ylist, c = colour, norm=colors.LogNorm(vmin = colour.min(), vmax = colour.max()), cmap = cmap, s = size, marker = mark)
             #plt.pcolormesh(xlist, ylist, colour, cmap = cmap, shading = 'nearest')
         else:
             plt.scatter(xlist, ylist, c = colour, cmap = 'YlGnBu', s = size, marker = mark)
@@ -342,28 +392,41 @@ def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savenam
     
 def is_hermitian(A):
     return not np.any((A != A.getH()).toarray())
+
+def PH_exchange(A):
+    P = sp.kron(paulis[1], sp.identity(N))
+    return P * A.conjugate() * P
+
+def Pdiff(A):
+    return A + PH_exchange(A)
     
 if __name__ == '__main__':
     #plot_grid(lattice, pointsize = 500)
-    R = 24
+    R = 32
     k = 2**5
     t = 1
     mu = 0.9
     Delta1 = 0.2
     Delta2 = 0.1
     use_sparse = False
-    vortex = True
+    vorticity = -1
+    
+    saveplots = False
     
     lattice = make_lattice(R)
     lattnn1 = find_nn(lattice)
     lattnn2 = find_nn(lattice, 2)
     N = len(lattice)
+    msize = 12*A_hex(32)/A_hex(R)
     
-    H = H_fif(t, mu, Delta1, Delta2)
-    vsite = find_origin()
-    if vortex:
-        V = vortex_phase(vsite, 1, False)
-        H = H + V*H
+    if vorticity is not None:
+        vsite = len(lattice) // 2
+        H = H_fif(t, mu, Delta1, Delta2, vsite, vorticity)
+    else:
+        vsite = -1
+        H = H_fif(t, mu, Delta1, Delta2, vsite)
+        
+        
     
     #title1 = r'$R =$ {0}, $N =$ {1}, $\mu=$ {2}'.format(R, N, mu)
     title1 = r'$N =$ {0}, $\mu=$ {1}'.format(N, mu)
@@ -376,22 +439,51 @@ if __name__ == '__main__':
         #Takes about 13 minutes for R = 32
         savename = 'fif_eigh'
         evals, evecs = eigh(H.toarray())
-    if vortex:
-        savename = savename + '_vortex'
+    if vorticity is not None:
+        if vorticity > 0:
+            savename = savename + '_vortex'
+        elif vorticity < 0:
+            savename = savename + '_antivortex'
     np.savez('data/' + savename + '_R{0}_mu{1:.2f}'.format(R, mu).replace('.',''), evals, evecs)
     
     
-    zero_evals = np.where(np.abs(evals) < 0.1)[0]
+    zero_evals = np.where(np.abs(evals) < 0.05)[0]
 
     for ind in zero_evals:
         state = evecs[:, ind][N:]
         amp = np.abs(state)**2
-        norm = np.sum(amp**2)
+        norm = np.sum(amp)
         title2 = title1 + ', $E =$ {0:.4f}'.format(evals[ind])
         
-        if evals[ind] > -0.005:
-            plot_grid(lattice, colour = amp/norm, pointsize=12, title = title2, savename = savename + '_ind{}'.format(ind) + '.pdf')
+        if saveplots:
+            plot_grid(lattice, colour = amp/norm, pointsize = msize, title = title2, savename = savename + '_ind{}'.format(ind) + '.pdf')
         else:
-            plot_grid(lattice, colour = amp/norm, pointsize=12, title = title2)
+            plot_grid(lattice, colour = amp/norm, pointsize = msize, title = title2)
     
+    zmodes = np.argsort(np.abs(evals))[0:2]
+    for ind in zmodes:
+        state = evecs[:, ind][N:]
+        title2 = title1 + ', $E =$ {0:.4f}'.format(evals[ind])
+        #title2 = title1 + ', $E =$ {0:.4f}'.format(evals[ind])
+        plot_grid(lattice, colour = np.real(state), pointsize = msize, title = title2)
+        plot_grid(lattice, colour = np.imag(state), pointsize = msize, title = title2)
     
+        
+    zmodes1 = (evecs[:, zmodes[0]][N:] + evecs[:, zmodes[1]][N:])/np.sqrt(2)
+    zmodes2 = (evecs[:, zmodes[0]][N:] - evecs[:, zmodes[1]][N:])/np.sqrt(2)
+    
+    amp1 = np.abs(zmodes1)**2
+    amp2 = np.abs(zmodes2)**2
+    
+    plot_grid(np.delete(lattice, vsite, axis = 0), colour = np.delete(amp1, vsite), pointsize = msize, title = title2, norm = 'log')
+    plot_grid(lattice, colour = amp1, pointsize = msize, title = title2)
+    plot_grid(np.delete(lattice, vsite, axis = 0), colour = np.delete(amp2, vsite), pointsize = msize, title = title2, norm = 'log')
+    plot_grid(lattice, colour = amp2, pointsize = msize, title = title2)
+    
+    spectral_rev = plt.cm.get_cmap('Spectral').reversed()
+    
+    plot_grid(lattice, colour = np.real(zmodes1), pointsize = msize, title = title2, cmap = spectral_rev)
+    plot_grid(lattice, colour = np.imag(zmodes1), pointsize = msize, title = title2, cmap = spectral_rev)
+    
+    plot_grid(lattice, colour = np.real(zmodes2), pointsize = msize, title = title2, cmap = spectral_rev)
+    plot_grid(lattice, colour = np.imag(zmodes2), pointsize = msize, title = title2, cmap = spectral_rev)

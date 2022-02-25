@@ -39,8 +39,9 @@ def get_ldos(evals, evecs, sites, dw, wrange = None):
 
 if __name__ == '__main__':
     mu = 0.9
+    R = 32
     
-    filename = 'data/fif_eigh_vortex_R32_mu{0:.2f}'.format(mu).replace('.','') + '.npz'
+    filename = 'data/fif_eigh_antivortex_R{0}_mu{1:.2f}'.format(R, mu).replace('.','') + '.npz'
     infile = np.load(filename)
     evals = infile['arr_0']
     evecs = infile['arr_1']
@@ -51,8 +52,8 @@ if __name__ == '__main__':
     if 'vortex' in filename:
         savename = savename + 'vortex'
     
-    lattice = make_lattice(32)
-    center = np.where(np.all(lattice == np.array([0,0]), axis = 1))[0][0]
+    lattice = make_lattice(R)
+    center = len(lattice) // 2 + 1
     
     wrangec, ldosc = get_ldos(evals, evecs, center, 0.1)
     wrangee, ldose = get_ldos(evals, evecs, 0, 0.1)
@@ -61,11 +62,11 @@ if __name__ == '__main__':
     axc.plot(wrangec, ldosc)
     axc.set_xlabel(r'$\omega$', size = 'xx-large')
     axc.set_ylabel(r'$\rho(\omega, \mathbf{r})$', size = 'xx-large')
-    axc.set_xlim(-6,6)
-    axc.set_title('LDOS at origin')
+    #axc.set_xlim(-4,4)
+    axc.set_title('LDOS near origin')
     
     axe.plot(wrangee, ldose)
-    axe.set_xlim(-6, 6)
+    #axe.set_xlim(-4, 4)
     axe.set_title('LDOS at edge')
     axe.set_xlabel(r'$\omega$', size = 'xx-large')
     
@@ -77,11 +78,14 @@ if __name__ == '__main__':
     
     zero_evals = np.where(np.abs(evals) < 0.03)[0]
     
+    erange = 0.7
+    einrange = evals[np.abs(evals) < erange]
+    eindex = np.arange(0, len(evals))[np.abs(evals) < erange]
+    
     fig, ax = plt.subplots(figsize = (4,10))
-    ax.plot(np.arange(0, len(evals))[np.abs(evals) > 0.03], evals[np.abs(evals) > 0.03], 'o')
+    ax.plot(eindex[np.abs(einrange) > 0.03], einrange[np.abs(einrange) > 0.03], 'o')
     ax.plot(zero_evals, evals[zero_evals], 'x', c='r', markersize = 12, label = r'$|E| < 0.03$')
-    ax.set_xlim(3150, 3190)
-    ax.set_ylim(-0.15,0.15)
+
     ax.set_xlabel('Eigenstate index', size='x-large')
     ax.set_ylabel('Energy', size='xx-large')
     ax.set_title(title1, size = 'x-large')
