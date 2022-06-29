@@ -9,11 +9,15 @@ from scipy.constants import pi
 import scipy.sparse as sp
 from scipy.sparse.linalg import eigsh
 from numpy.linalg import eigh
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import os.path
 import time
 import warnings
+
+matplotlib.rcParams["mathtext.rm"] = 'serif'
+matplotlib.rcParams["mathtext.fontset"] = 'cm'
 
 R = 2
 paulis = np.array([
@@ -340,7 +344,7 @@ def vortex_phase(vsite, ind, neighbours, vorticity = 1):
     
 #     return sp.bmat([[None, halfmat],[halfmat.getH(), None]]).tocsr()
 
-def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savename = None, pointsize = None, cmap = 'YlGnBu', norm = None):
+def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savename = None, pointsize = None, cmap = 'YlGnBu', norm = None, show_labels = True):
     xlist = []
     ylist = []
     
@@ -372,24 +376,29 @@ def plot_grid(mesh, colour = None, grid = 'tri', title='', clims = None, savenam
                 plt.scatter(xlist, ylist, c = colour, cmap = cmap, s = size, marker = mark)
             elif norm == 'log':
                 plt.scatter(xlist, ylist, c = colour, norm=colors.LogNorm(vmin = colour.min(), vmax = colour.max()), cmap = cmap, s = size, marker = mark)
+            elif type(norm) is float:
+                plt.scatter(xlist, ylist, c = colour, norm=colors.PowerNorm(norm), cmap = cmap, s = size, marker = mark)
             #plt.pcolormesh(xlist, ylist, colour, cmap = cmap, shading = 'nearest')
         else:
             plt.scatter(xlist, ylist, c = colour, cmap = 'YlGnBu', s = size, marker = mark)
            
-    plt.colorbar().set_label('Amplitude (a.u.)', size = 'x-large')
+    cbar = plt.colorbar()
+    cbar.ax.tick_params(labelsize = 15)
     plt.xticks(fontsize=13)
     plt.yticks(fontsize=13)
-    plt.xlabel(r'$x$', size='xx-large')
-    plt.ylabel(r'$y$', size='xx-large')
+    if show_labels:
+        plt.xlabel(r'$x$', size='xx-large')
+        plt.ylabel(r'$y$', size='xx-large')
+    else:
+        plt.tick_params(left = False, labelleft = False , labelbottom = False, bottom = False)
     plt.title(title, size='xx-large')
     
     if savename is not None:
+        print('Saving figure')
         if not os.path.exists('plots'):
             os.makedirs('plots')
-        plt.savefig('plots/' + savename)
-    
-    plt.show()
-    
+        plt.savefig('plots/' + savename, bbox_inches = 'tight')
+        
 def is_hermitian(A):
     return not np.any((A != A.getH()).toarray())
 
@@ -405,11 +414,11 @@ if __name__ == '__main__':
     R = 32
     k = 2**5
     t = 1
-    mu = 0.9
-    Delta1 = 0.2
-    Delta2 = 0.1
+    mu = 0.8
+    Delta1 = 0.5*t
+    Delta2 = Delta1/(3*np.sqrt(3))
     use_sparse = False
-    vorticity = -1
+    vorticity = 1
     
     saveplots = False
     
@@ -429,7 +438,7 @@ if __name__ == '__main__':
         
     
     #title1 = r'$R =$ {0}, $N =$ {1}, $\mu=$ {2}'.format(R, N, mu)
-    title1 = r'$N =$ {0}, $\mu=$ {1}'.format(N, mu)
+    title1 = r'$N =${0}, $\mu=${1}'.format(N, mu)
     if use_sparse:
         savename = 'fif_eigsh'
         evals, evecs = eigsh(H, k = k, which='SM')
@@ -446,29 +455,26 @@ if __name__ == '__main__':
             savename = savename + '_antivortex'
     np.savez('data/' + savename + '_R{0}_mu{1:.2f}'.format(R, mu).replace('.',''), evals, evecs)
     
-    
     zero_evals = np.where(np.abs(evals) < 0.05)[0]
 
     for ind in zero_evals:
         state = evecs[:, ind][N:]
         amp = np.abs(state)**2
         norm = np.sum(amp)
-        title2 = title1 + ', $E =$ {0:.4f}'.format(evals[ind])
+        title2 = title1 + ', $E =${0:.4f}'.format(evals[ind])
         
         if saveplots:
             plot_grid(lattice, colour = amp/norm, pointsize = msize, title = title2, savename = savename + '_ind{}'.format(ind) + '.pdf')
         else:
             plot_grid(lattice, colour = amp/norm, pointsize = msize, title = title2)
     
+    # Isolate the states closest to zero
     zmodes = np.argsort(np.abs(evals))[0:2]
     for ind in zmodes:
         state = evecs[:, ind][N:]
-        title2 = title1 + ', $E =$ {0:.4f}'.format(evals[ind])
+        title2 = title1 + ', $E =${0:.4f}'.format(evals[ind])
         #title2 = title1 + ', $E =$ {0:.4f}'.format(evals[ind])
-        plot_grid(lattice, colour = np.real(state), pointsize = msize, title = title2)
-        plot_grid(lattice, colour = np.imag(state), pointsize = msize, title = title2)
-    
-        
+
     zmodes1 = (evecs[:, zmodes[0]][N:] + evecs[:, zmodes[1]][N:])/np.sqrt(2)
     zmodes2 = (evecs[:, zmodes[0]][N:] - evecs[:, zmodes[1]][N:])/np.sqrt(2)
     
@@ -480,10 +486,10 @@ if __name__ == '__main__':
     plot_grid(np.delete(lattice, vsite, axis = 0), colour = np.delete(amp2, vsite), pointsize = msize, title = title2, norm = 'log')
     plot_grid(lattice, colour = amp2, pointsize = msize, title = title2)
     
-    spectral_rev = plt.cm.get_cmap('Spectral').reversed()
+    # spectral_rev = plt.cm.get_cmap('Spectral').reversed()
     
-    plot_grid(lattice, colour = np.real(zmodes1), pointsize = msize, title = title2, cmap = spectral_rev)
-    plot_grid(lattice, colour = np.imag(zmodes1), pointsize = msize, title = title2, cmap = spectral_rev)
+    # plot_grid(lattice, colour = np.real(zmodes1), pointsize = msize, title = title2, cmap = spectral_rev)
+    # plot_grid(lattice, colour = np.imag(zmodes1), pointsize = msize, title = title2, cmap = spectral_rev)
     
-    plot_grid(lattice, colour = np.real(zmodes2), pointsize = msize, title = title2, cmap = spectral_rev)
-    plot_grid(lattice, colour = np.imag(zmodes2), pointsize = msize, title = title2, cmap = spectral_rev)
+    # plot_grid(lattice, colour = np.real(zmodes2), pointsize = msize, title = title2, cmap = spectral_rev)
+    # plot_grid(lattice, colour = np.imag(zmodes2), pointsize = msize, title = title2, cmap = spectral_rev)
